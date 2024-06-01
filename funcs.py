@@ -1,6 +1,7 @@
 import openpyxl
 import subprocess
 import time
+import asyncio
 
 # Создаем переменные для работы с таблицей compare_sids_xlsx
 def table_var_assign():
@@ -33,31 +34,57 @@ def get_ws_names_and_discr():
 def ping_or_not(ws_list, n):
     command = f'ping {ws_list[0 + n]}'
     result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866')
-    if 'число' in str(result).split():
+    if 'число' or 'bytes' in str(result).split():
         bool_var = True
     else:
         bool_var = False
     return bool_var
 
+# Выполняем cmd команду на получение SID (local или domain)
+domain_sid_dict = {}
+local_sid_dict = {}
+async def complete_cmd_command(command, n, domain_sid=True):
+    result = await asyncio.to_thread(subprocess.run, command, shell=True, capture_output=True, text=True, encoding='cp866')
+    sid = str(result.stdout).split(':')
+    clear_sid = sid[-1].strip()
+    if domain_sid:
+        domain_sid_dict[n] = clear_sid
+    else:
+        local_sid_dict[n] = clear_sid
+
 # Получаем доменный SID
-def get_domain_sid(ws_list, ws_num):
-    command = 'cd c:\\ & cd pstools & psgetsid ' + str(ws_list[ws_num]) + '$'
-    result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866')
-    get_sid = str(result).split(':')
-    get_clear_domain_sid = str(get_sid[-1]).split('\\n')
-    return get_clear_domain_sid[1]
+async def get_domain_sid(ws_list, n):
+    await complete_cmd_command('cd c:\\ & cd pstools & psgetsid ' + str(ws_list[n]) + '$', n, True)
 
 # Получаем локальный SID
-def get_local_sid(ws_list, ws_num):
-    command = 'cd c:\\ & cd pstools & psgetsid \\\\' + str(ws_list[ws_num])
-    result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866')
-    time.sleep(5)
-    get_sid = str(result).split(':')
-    get_clear_local_sid = str(get_sid[-1]).split('\\n')
-    return get_clear_local_sid[1]
+async def get_local_sid(ws_list, n):
+    await complete_cmd_command('cd c:\\ & cd pstools & psgetsid \\\\' + str(ws_list[n]), n, False)
+
+# Получаем список из корутин для получения domain или local SID
+def get_coroutine_list_sid(ws_list, domain_sid=True):
+    coroutine_list = []
+    if domain_sid:
+        for n in range(len(ws_list)):
+            coroutine_list.append(get_domain_sid(ws_list, n))
+    else:
+        for n in range(len(ws_list)):
+            coroutine_list.append(get_local_sid(ws_list, n))
+    return coroutine_list
+
+# Запускаем event_loop для асинхронного получения списков sid
+async def get_sid_in_list(ws_list, domain_sid=True):
+    coroutine_list = get_coroutine_list_sid(ws_list, domain_sid)
+    await asyncio.gather(*coroutine_list)
+    if domain_sid:
+        print(domain_sid_dict)
+    else:
+        print(local_sid_dict)
 
 # Запись данных WS и получение Local и Domain SID
 def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
+
+    event_loop = asyncio.get_event_loop()
+
     n = 0
     for string in range(len(ws_list)):
 
@@ -69,11 +96,15 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
         sheet[2 + (string)][0].value = 1 + n
         sheet[2 + (string)][1].value = ws_list[0 + n]
 
-        for done_discr in ws_list_discr[0 + n]:
-            done_discr_fulled += ' ' + done_discr
+        # Заполняем столбец описания WS
+        if ws_list_discr[0 + n] != []:
+            for done_discr in ws_list_discr[0 + n]:
+                done_discr_fulled += ' ' + done_discr
 
-        sheet[2 + (string)][2].value = done_discr_fulled
-        print(done_discr_fulled)
+            sheet[2 + (string)][2].value = done_discr_fulled.strip()
+            print(f'Описание WS: {done_discr_fulled.strip()}')
+        else:
+            print('Описания нет')
 
         if not ping_or_not_bool:
             sheet[2 + (string)][3].value = 'Workstation не пингуется'
@@ -83,6 +114,8 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
                 sheet[2 + (string)][3].value = 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора.'
                 print('Локальный SID: Не удалось получить Local SID. Возможно утилита запущена не от имени администратора')
             else:
+                event_loop.run_until_complete()
+
                 local_sid = get_local_sid(ws_list, 0 + n)
                 sheet[2 + (string)][3].value = local_sid
                 print(f'Локальный SID: {local_sid}')

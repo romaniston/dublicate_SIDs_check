@@ -2,6 +2,7 @@ import openpyxl
 import subprocess
 import time
 import funcs
+import asyncio
 
 # Создаем переменные для работы с таблицей compare_sids_xlsx
 compare_sids_xlsx, sheet = funcs.table_var_assign()
@@ -19,6 +20,7 @@ while infinite_run == True:
 
     # Получаем массивы с именами и описаниями WS из workstations.txt
     ws_list, ws_list_discr = funcs.get_ws_names_and_discr()
+
     if run == '1':
 
         funcs.get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr)
@@ -35,3 +37,17 @@ while infinite_run == True:
         print(f'--------------'
               f'\nОперация закончена. Файл "compare_sids.xlsx" обновлен.'
               f'\n--------------')
+
+    elif run == '3':
+        print(ws_list)
+
+        # Запуск корутин для получения локальных SID
+        asyncio.run(funcs.get_sid_in_list(ws_list, domain_sid=False))
+
+        # funcs.get_coroutine_list_sid(ws_list, True)
+        # funcs.get_sid_in_list(funcs.coroutine_list, True)
+        # funcs.get_coroutine_list_sid(ws_list, False)
+        # funcs.get_sid_in_list(funcs.coroutine_list, False)
+
+
+
