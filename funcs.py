@@ -33,6 +33,7 @@ def get_ws_names_and_discr():
 def ping_or_not(ws_list, n):
     command = f'ping {ws_list[0 + n]}'
     result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866')
+    print(test)
     if 'число' in str(result).split():
         bool_var = True
     else:
@@ -60,37 +61,29 @@ def get_local_sid(ws_list, ws_num):
 def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
     n = 0
     for string in range(len(ws_list)):
-
         done_discr_fulled = ''
         done_discr = ''
-
-        print(f'Workstation #{1+n}')
+        ws_name_output = f'Workstation #{1+n}'
         ping_or_not_bool = ping_or_not(ws_list, n)
         sheet[2 + (string)][0].value = 1 + n
         sheet[2 + (string)][1].value = ws_list[0 + n]
-
         for done_discr in ws_list_discr[0 + n]:
             done_discr_fulled += ' ' + done_discr
-
         sheet[2 + (string)][2].value = done_discr_fulled
-        print(done_discr_fulled)
-
         if not ping_or_not_bool:
             sheet[2 + (string)][3].value = 'Workstation не пингуется'
-            print('Workstation не пингуется. Local SID не получен.')
+            yield ws_name_output, 'Workstation не пингуется. Local SID не получен.', None, None, None
         else:
-            if get_local_sid(ws_list, 0 + n)[0] != 'S':
+            local_sid = get_local_sid(ws_list, 0 + n)
+            domain_sid = get_domain_sid(ws_list, 0 + n)
+            if local_sid[0] != 'S':
                 sheet[2 + (string)][3].value = 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора.'
-                print('Локальный SID: Не удалось получить Local SID. Возможно утилита запущена не от имени администратора')
+                yield ws_name_output, 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора', None, local_sid, domain_sid
             else:
-                local_sid = get_local_sid(ws_list, 0 + n)
                 sheet[2 + (string)][3].value = local_sid
-                print(f'Локальный SID: {local_sid}')
-        domain_sid = get_domain_sid(ws_list, 0 + n)
+                yield ws_name_output, None, None, local_sid, domain_sid
         sheet[2 + (string)][4].value = domain_sid
-        print(f'Доменный SID: {domain_sid}')
         n += 1
-        print('--------------')
         compare_sids_xlsx.save('compare_sids.xlsx')
 
 # Функция для поиск дублей Local и Domain SID
