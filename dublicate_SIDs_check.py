@@ -6,6 +6,7 @@ import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QLabel,\
     QVBoxLayout, QWidget, QTextEdit, QDialog, QVBoxLayout
 from PyQt5.QtGui import QIcon
+from PyQt5.QtCore import QThread, pyqtSignal
 
 # Создаем переменные для работы с таблицей compare_sids_xlsx
 compare_sids_xlsx, sheet = funcs.table_var_assign()
@@ -27,17 +28,18 @@ class SecondaryWindow(QDialog):
         layout = QVBoxLayout()
 
         # Добавляем текстовое поле
-        self.label = QLabel(f"<p><h3>Dublicate SIDs check предназначен для проверки локальной сети"
-                            f"<p>на предмет дублирования Domain и Local SIDs.</h3>"
-                            f"<p>************"
-                            f"<p>Инструкция по использованию:"
-                            f"<p>1) Выгружаем из Active Directory .txt файл с описанием рабочих станций не внося в него правок."
-                            f"<p>2) Файл должен называться 'workstations.txt'. Помещаем его в директорию со скриптом."
-                            f"<p>3) Также в той же директории должна находится таблица 'compare_sids.xlsx' с определенным шаблоном"
-                            f"<p>4) Запускаем скрипт от имени администратора. Нажимаем кнопку 'Сканировать все WS и получить Domain и Local SIDs'"
-                            f"<p>5) По окончанию операции в таблицу 'compare_sids.xlsx' будут записаны все Domain и Local SIDs из списка которые удалось получить"
-                            f"<p>6) Нажимаем кнопку 'Запуск поиска дублей Domain и Local SIDs'"
-                            f"<p>7) По окончании операции в таблицу будет выведена информация о дублирующихся SIDs в специальные столбцы")
+        self.label = QLabel(f'<p><center><img src="sid.png" width=100 height=100/></center>'
+                            f'<p><h3><center>Dublicate SIDs check</h3></center>'
+                            f'<p><center>С помощью этой программы можно выявить дублирующиеся'
+                            f'<p>Domain и Local SIDs в локальной сети</h3></center>'
+                            f'<p>Инструкция по использованию:'
+                            f'<p>1) Экспортируем каталог с компьютерами из Active Directory в "workstations.txt".'
+                            f'<p>2) Помещаем файл в директорию с программой.'
+                            f'<p>3) В той же директории должна находится таблица "compare_sids.xlsx" с определенным шаблоном'
+                            f'<p>4) Запускаем от имени администратора.'
+                            f'<p>5) Запускаем "Получить SIDs" и ждем завершения.'
+                            f'<p>6) Запускаем "Проверка на дублирование SIDs" и ждем завершения.'
+                            f'<p>7) Вывод результатов производится в "compare_sids.xlsx"')
         layout.addWidget(self.label)
 
         # Добавляем кнопку для закрытия окна
@@ -68,15 +70,15 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
 
         # Добавляем кнопку 1
-        self.help_for_use_button = QPushButton("Как пользоваться")
+        self.help_for_use_button = QPushButton("About")
         layout.addWidget(self.help_for_use_button)
 
         # Добавляем кнопку 2
-        self.get_sids_button = QPushButton("Сканировать все WS и получить Domain и Local SIDs")
+        self.get_sids_button = QPushButton("Получить SIDs")
         layout.addWidget(self.get_sids_button)
 
         # Добавляем кнопку 3
-        self.get_dubles_button = QPushButton("Запуск поиска дублей Domain и Local SIDs")
+        self.get_dubles_button = QPushButton("Проверка на дублирование SIDs")
         layout.addWidget(self.get_dubles_button)
 
         # Добавляем текстовое поле для вывода сообщений
@@ -92,24 +94,27 @@ class MainWindow(QMainWindow):
         self.help_for_use_button.clicked.connect(self.help_for_use)
         self.get_dubles_button.clicked.connect(self.get_dubles)
 
+
     def help_for_use(self):
-        self.secondary_window = SecondaryWindow('Как пользоваться', 720, 350)
+        self.secondary_window = SecondaryWindow('About', 550, 450)
         self.secondary_window.exec_()
 
     def get_domain_n_local_sids(self):
         self.message_output.append(f"Идет получение Domain и Local SIDs. Пожалуйста, подождите."
                                    f"<p>************")
         self.get_sids_button.setEnabled(False)
-        QApplication.processEvents()
+        n = 0
+        QApplication.processEvents() # Принудительное обновление формы
         for ws_name_output, message, fail_output, local_sid_output, domain_sid_output in funcs.get_names_and_sids(
                 ws_list, sheet, compare_sids_xlsx, ws_list_discr):
             if message:
-                self.message_output.append(ws_name_output + ":" + "<p>Local SID - " + message +
+                self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - " + message +
                                            '<p>Domain SID - ' + domain_sid_output + "<p>************")
             else:
-                self.message_output.append(ws_name_output + ":" + "<p>Local SID - " + local_sid_output +
+                self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - " + local_sid_output +
                                            '<p>Domain SID - ' + domain_sid_output + "<p>************")
             QApplication.processEvents()
+            n += 1
         self.message_output.append('Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
         self.message_output.append("************")
         self.get_sids_button.setEnabled(True)
@@ -117,6 +122,7 @@ class MainWindow(QMainWindow):
     def get_dubles(self):
         self.message_output.append("Идет поиск дублирующихся SIDs.")
         self.get_dubles_button.setEnabled(False)  # Делаем кнопку неактивной
+        QApplication.processEvents()  # Принудительное обновление формы
         funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, True)
         funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, False)
         self.message_output.append('Поиск закончен. Результаты записаны в "compare_sids.xlsx"')

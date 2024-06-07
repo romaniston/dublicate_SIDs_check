@@ -1,16 +1,13 @@
 import openpyxl
 import subprocess
 import time
+from openpyxl.styles import PatternFill
 
 # Создаем переменные для работы с таблицей compare_sids_xlsx
 def table_var_assign():
-    try:
-        compare_sids_xlsx = openpyxl.open('compare_sids.xlsx')
-        sheet = compare_sids_xlsx.active
-        compare_sids_xlsx.save('compare_sids.xlsx')
-    except PermissionError:
-        print('Нет доступа к таблице compare_sids.xlsx. Возможно, её нужно закрыть. Программа остановлена.')
-        time.sleep(999999)
+    compare_sids_xlsx = openpyxl.open('compare_sids.xlsx')
+    sheet = compare_sids_xlsx.active
+    compare_sids_xlsx.save('compare_sids.xlsx')
     return compare_sids_xlsx, sheet
 
 # Чтение из workstations.txt имен ПК и их описание и запись их в массивы
@@ -32,11 +29,14 @@ def get_ws_names_and_discr():
 # Функция для проверки пингуется ли WS
 def ping_or_not(ws_list, n):
     command = f'ping {ws_list[0 + n]}'
-    result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866')
-    print(test)
-    if 'число' in str(result).split():
-        bool_var = True
-    else:
+    try:
+        result = subprocess.run(command, shell=True, capture_output=True, text=True, encoding='cp866', timeout=30)
+        if 'число' in str(result).split():
+            bool_var = True
+        else:
+            bool_var = False
+    except subprocess.TimeoutExpired:
+        print(f'Команда "{command}" превысила тайм-аут 30 секунд.')
         bool_var = False
     return bool_var
 
@@ -64,15 +64,24 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
         done_discr_fulled = ''
         done_discr = ''
         ws_name_output = f'Workstation #{1+n}'
+        print('test')
         ping_or_not_bool = ping_or_not(ws_list, n)
+        print('success')
         sheet[2 + (string)][0].value = 1 + n
         sheet[2 + (string)][1].value = ws_list[0 + n]
+        print(1)
         for done_discr in ws_list_discr[0 + n]:
             done_discr_fulled += ' ' + done_discr
+        print(2)
         sheet[2 + (string)][2].value = done_discr_fulled
+        print(3)
         if not ping_or_not_bool:
+            print(3.1)
             sheet[2 + (string)][3].value = 'Workstation не пингуется'
-            yield ws_name_output, 'Workstation не пингуется. Local SID не получен.', None, None, None
+            print(3.2)
+            domain_sid = get_domain_sid(ws_list, 0 + n)
+            yield ws_name_output, 'Workstation не пингуется. Local SID не получен.', None, local_sid, domain_sid
+            print(3.3)
         else:
             local_sid = get_local_sid(ws_list, 0 + n)
             domain_sid = get_domain_sid(ws_list, 0 + n)
@@ -82,6 +91,8 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
             else:
                 sheet[2 + (string)][3].value = local_sid
                 yield ws_name_output, None, None, local_sid, domain_sid
+            compare_sids_xlsx.save('compare_sids.xlsx')
+        print(4)
         sheet[2 + (string)][4].value = domain_sid
         n += 1
         compare_sids_xlsx.save('compare_sids.xlsx')
@@ -122,12 +133,16 @@ def check_dubles(ws_list, sheet, compare_sids_xlsx, not_domain_sid):
                             pass
 
         list_of_compared_done = ''
+        red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Красный цвет заливки
+        green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid") # Зеленый цвет заливки
         if list_of_compared != []:
             for duble in list_of_compared:
                 list_of_compared_done += str(duble) + ", "
             sheet[1 + string][5 + domain_sid].value = f'Найдены дубли: {list_of_compared_done}'
+            sheet[1 + string][5 + domain_sid].fill = red_fill
         else:
             sheet[1 + string][5 + domain_sid].value = 'Совпадений нет'
+            sheet[1 + string][5 + domain_sid].fill = green_fill
 
     try:
         compare_sids_xlsx.save('compare_sids.xlsx')
