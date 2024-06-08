@@ -78,6 +78,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.get_sids_button)
 
         # Добавляем кнопку 3
+        self.get_failed_sids_button = QPushButton("Получить недостающие SIDs")
+        layout.addWidget(self.get_failed_sids_button)
+
+        # Добавляем кнопку 4
         self.get_dubles_button = QPushButton("Проверка на дублирование SIDs")
         layout.addWidget(self.get_dubles_button)
 
@@ -93,7 +97,6 @@ class MainWindow(QMainWindow):
         self.get_sids_button.clicked.connect(self.get_domain_n_local_sids)
         self.help_for_use_button.clicked.connect(self.help_for_use)
         self.get_dubles_button.clicked.connect(self.get_dubles)
-
 
     def help_for_use(self):
         self.secondary_window = SecondaryWindow('About', 550, 450)
@@ -119,12 +122,32 @@ class MainWindow(QMainWindow):
         self.message_output.append("************")
         self.get_sids_button.setEnabled(True)
 
+    def get_failed_domain_n_local_sids(self):
+        self.message_output.append(f"Идет получение недостающих Domain и Local SIDs. Пожалуйста, подождите."
+                                   f"<p>************")
+        self.get_failed_sids_button.setEnabled(False)
+        n = 0
+        QApplication.processEvents() # Принудительное обновление формы
+        for ws_name_output, message, fail_output, local_sid_output, domain_sid_output in funcs.get_names_and_sids(
+                ws_list, sheet, compare_sids_xlsx, ws_list_discr):
+            if message:
+                self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - " + message +
+                                           '<p>Domain SID - ' + domain_sid_output + "<p>************")
+            else:
+                self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - " + local_sid_output +
+                                           '<p>Domain SID - ' + domain_sid_output + "<p>************")
+            QApplication.processEvents()
+            n += 1
+        self.message_output.append('Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
+        self.message_output.append("************")
+        self.get_failed_sids_button.setEnabled(True)
+
     def get_dubles(self):
         self.message_output.append("Идет поиск дублирующихся SIDs.")
         self.get_dubles_button.setEnabled(False)  # Делаем кнопку неактивной
         QApplication.processEvents()  # Принудительное обновление формы
-        funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, True)
-        funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, False)
+        funcs.check_dubles(sheet, compare_sids_xlsx, True)
+        funcs.check_dubles(sheet, compare_sids_xlsx, False)
         self.message_output.append('Поиск закончен. Результаты записаны в "compare_sids.xlsx"')
         self.message_output.append("************")
         self.get_dubles_button.setEnabled(True)  # Делаем кнопку активной
@@ -134,44 +157,3 @@ app = QApplication(sys.argv)
 window = MainWindow()
 window.show()
 sys.exit(app.exec_())
-
-
-
-
-
-
-
-
-
-# Создаем переменные для работы с таблицей compare_sids_xlsx
-compare_sids_xlsx, sheet = funcs.table_var_assign()
-
-infinite_run = True
-
-while infinite_run == True:
-
-    run = input(f'Выберите действие:'
-                f'\n1) Сканирование всех Workstations в сети и получение'
-                f'\n    Local SID и Domain SID с записью в файл'
-                f'\n2) Сканирование таблицы на предмет дублирующихся'
-                f'\n    Local SID и Domain SID с записью в файл'
-                f'\n>>> ')
-
-    # Получаем массивы с именами и описаниями WS из workstations.txt
-    ws_list, ws_list_discr = funcs.get_ws_names_and_discr()
-    if run == '1':
-
-        funcs.get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr)
-
-        print(f'--------------'
-              f'\nОперация закончена'
-              f'\n--------------')
-
-    elif run == '2':
-
-        funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, True)
-        funcs.check_dubles(ws_list, sheet, compare_sids_xlsx, False)
-
-        print(f'--------------'
-              f'\nОперация закончена. Файл "compare_sids.xlsx" обновлен.'
-              f'\n--------------')

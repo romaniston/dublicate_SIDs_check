@@ -3,6 +3,9 @@ import subprocess
 import time
 from openpyxl.styles import PatternFill
 
+output_message_ws_no_ping = 'Workstation не пингуется. Local SID не получен.'
+output_message_dont_get_local_sid = 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора.'
+
 # Создаем переменные для работы с таблицей compare_sids_xlsx
 def table_var_assign():
     compare_sids_xlsx = openpyxl.open('compare_sids.xlsx')
@@ -77,17 +80,17 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
         print(3)
         if not ping_or_not_bool:
             print(3.1)
-            sheet[2 + (string)][3].value = 'Workstation не пингуется'
+            sheet[2 + (string)][3].value = output_message_ws_no_ping
             print(3.2)
             domain_sid = get_domain_sid(ws_list, 0 + n)
-            yield ws_name_output, 'Workstation не пингуется. Local SID не получен.', None, local_sid, domain_sid
+            yield ws_name_output, output_message_ws_no_ping, None, local_sid, domain_sid
             print(3.3)
         else:
             local_sid = get_local_sid(ws_list, 0 + n)
             domain_sid = get_domain_sid(ws_list, 0 + n)
             if local_sid[0] != 'S':
-                sheet[2 + (string)][3].value = 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора.'
-                yield ws_name_output, 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора', None, local_sid, domain_sid
+                sheet[2 + (string)][3].value = output_message_dont_get_local_sid
+                yield ws_name_output, output_message_dont_get_local_sid, None, local_sid, domain_sid
             else:
                 sheet[2 + (string)][3].value = local_sid
                 yield ws_name_output, None, None, local_sid, domain_sid
@@ -97,8 +100,20 @@ def get_names_and_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
         n += 1
         compare_sids_xlsx.save('compare_sids.xlsx')
 
+# Цвет ячейки excel
+def field_color(color):
+    red_fill = PatternFill(start_color=color, end_color=color, fill_type="solid")
+
 # Функция для поиск дублей Local и Domain SID
-def check_dubles(ws_list, sheet, compare_sids_xlsx, not_domain_sid):
+def check_dubles(sheet, compare_sids_xlsx, not_domain_sid):
+    # Подсчет WS в compare_sids.xlsx
+    ws_count = 0
+    n = 1
+    while sheet[n][0].value != None:
+        ws_count += 1
+        n += 1
+
+    print(ws_count)
 
     # При True ищется Local SID, при False - Domain SID
     if not_domain_sid:
@@ -111,7 +126,7 @@ def check_dubles(ws_list, sheet, compare_sids_xlsx, not_domain_sid):
     is_header_field = True
 
     # Поиск дублей
-    for string in range(len(ws_list) + 1):
+    for string in range(ws_count):
         if is_header_field:
             is_header_field = False
             continue
@@ -120,29 +135,34 @@ def check_dubles(ws_list, sheet, compare_sids_xlsx, not_domain_sid):
         sid_val_source = sheet[1 + string][3 + domain_sid].value
         list_of_compared = []
 
-        for compare_string in range(len(ws_list) + 1):
+        for compare_string in range(ws_count):
             compared_ws_num = sheet[1 + compare_string][0].value
             compared_ws_name = sheet[1 + compare_string][1].value
             sid_val = sheet[1 + compare_string][3 + domain_sid].value
             if compared_ws_num_source != compared_ws_num:
                 if sid_val == sid_val_source:
-                    if sid_val != 'Workstation не пингуется':
-                        if sid_val != 'Не удалось получить Local SID. Возможно утилита запущена не от имени администратора.':
+                    if sid_val != output_message_ws_no_ping:
+                        if sid_val != output_message_dont_get_local_sid:
                             list_of_compared.append(f'№{compared_ws_num} - {compared_ws_name}')
                         else:
                             pass
 
+        local_sid_field = sheet[1 + string][3].value
         list_of_compared_done = ''
-        red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")  # Красный цвет заливки
-        green_fill = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid") # Зеленый цвет заливки
         if list_of_compared != []:
             for duble in list_of_compared:
                 list_of_compared_done += str(duble) + ", "
             sheet[1 + string][5 + domain_sid].value = f'Найдены дубли: {list_of_compared_done}'
-            sheet[1 + string][5 + domain_sid].fill = red_fill
+            sheet[1 + string][5 + domain_sid].fill = field_color("FF0000")
         else:
             sheet[1 + string][5 + domain_sid].value = 'Совпадений нет'
-            sheet[1 + string][5 + domain_sid].fill = green_fill
+            sheet[1 + string][5 + domain_sid].fill = field_color("00FF00")
+
+        if local_sid_field[0] != 'S':
+            sheet[1 + string][5].value = 'Local SID не получен'
+            sheet[1 + string][5].fill = field_color("FF8000")
+        else:
+            pass
 
     try:
         compare_sids_xlsx.save('compare_sids.xlsx')
