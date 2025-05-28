@@ -174,14 +174,23 @@ class MainWindow(QMainWindow):
         ws_name_output, message, fail_output, local_sid_output, domain_sid_output = result
 
         print(f'INFO: ws_list: {ws_list}')
+        print(f'INFO: ws_list_discr: {ws_list_discr}')
         print(f'INFO: n: {n}')
 
         if message:
-            self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - " + message +
-                                       '<p>Domain SID - ' + domain_sid_output + "<p>************")
+            self.message_output.append(ws_name_output + ":"
+                                       + "<p>Name: " + ws_list[n]
+                                       + "<p>Discr: " + ws_list_discr[n]
+                                       + "<p>Local SID - " + message
+                                       + "<p>Domain SID - " + domain_sid_output
+                                       + "<p>************")
         else:
-            self.message_output.append(ws_name_output + ":" + "<p>Name: " + ws_list[n] + "<p>Local SID - "
-                                       + local_sid_output + '<p>Domain SID - ' + domain_sid_output + "<p>************")
+            self.message_output.append(ws_name_output + ":"
+                                       + "<p>Name: " + ws_list[n]
+                                       + "<p>Discr: " + ws_list_discr[n]
+                                       + "<p>Local SID - " + local_sid_output
+                                       + "<p>Domain SID - " + domain_sid_output
+                                       + "<p>************")
         n += 1
 
     # handling full results

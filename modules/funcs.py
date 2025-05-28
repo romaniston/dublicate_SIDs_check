@@ -6,7 +6,7 @@ import os.path
 
 
 output_message_ws_no_ping = 'Workstation не пингуется. Local SID не получен.'
-output_message_dont_get_local_sid = ('Не удалось получить Local SID. Возможно утилита'
+output_message_dont_get_local_sid = ('Не удалось получить Local SID. Возможно утилита '
                                      'запущена не от имени администратора.')
 
 
@@ -25,8 +25,19 @@ def get_ws_names_and_discr():
         for string in file:
             if not_first_str:
                 split_string = string.split()
+
+                n = 0
+                is_discr = False
+
+                for l in string:
+                    if l == "\t":
+                        if is_discr == True:
+                            break
+                        is_discr = True
+                    n += 1
+
                 ws_list.append(split_string[0])
-                ws_list_discr.append(split_string[2:])
+                ws_list_discr.append(string[n:])
             else:
                 pass
                 not_first_str = True
