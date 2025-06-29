@@ -1,8 +1,10 @@
-import openpyxl
-import subprocess
 import time
-from openpyxl.styles import PatternFill
+import subprocess
 import os.path
+
+import openpyxl
+from openpyxl.styles import PatternFill, Font
+
 
 
 output_message_ws_no_ping = 'Workstation не пингуется. Local SID не получен.'
@@ -11,10 +13,14 @@ output_message_dont_get_local_sid = ('Не удалось получить Local
 
 
 def table_var_assign():
-    compare_sids_xlsx = openpyxl.open('compare_sids.xlsx')
-    sheet = compare_sids_xlsx.active
-    compare_sids_xlsx.save('compare_sids.xlsx')
-    return compare_sids_xlsx, sheet
+    if compare_sids_table_exists():
+        compare_sids_xlsx = openpyxl.open('compare_sids.xlsx')
+        sheet = compare_sids_xlsx.active
+        compare_sids_xlsx.save('compare_sids.xlsx')
+        return compare_sids_xlsx, sheet
+    else:
+        compare_sids_xlsx = False
+        return compare_sids_xlsx, None
 
 
 def get_ws_names_and_discr():
@@ -196,4 +202,53 @@ def looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid):
 
 
 def create_compare_sids_table():
-    pass  # in developing...
+    # Создаем новую книгу Excel
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+
+    # Заполняем заголовки
+    headers = [
+        "No",
+        "Name",
+        "Description",
+        "Local SID",
+        "Domain SID",
+        "Local SID duplicates",
+        "Domain SID duplicates"
+    ]
+
+    # Записываем заголовки в первую строку и применяем жирный шрифт
+    for col_num, header in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=col_num, value=header)
+        cell.font = Font(bold=True)
+
+    # Автоматически подгоняем ширину столбцов под содержимое
+    for column in sheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2) * 1.2
+        sheet.column_dimensions[column_letter].width = adjusted_width
+
+    # Сохраняем файл
+    try:
+        wb.save('compare_sids.xlsx')
+        return True
+    except PermissionError:
+        print("Ошибка: Нет доступа к файлу. Закройте compare_sids.xlsx если он открыт.")
+        return False
+
+
+def compare_sids_table_exists():
+    try:
+        compare_sids_table = open('compare_sids.xlsx')
+        print('Файл найден!')
+        return True
+    except Exception as e:
+        print('Файл не найден. EXCEPTION: ' + str(e))
+        return False

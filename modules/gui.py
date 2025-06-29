@@ -1,6 +1,7 @@
 from PyQt5.QtWidgets import QMainWindow, QPushButton, QLabel, QVBoxLayout, QWidget, QTextEdit, QDialog
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QThread, pyqtSignal
+
 from modules import funcs
 
 
@@ -28,43 +29,6 @@ class WorkerThread(QThread):
         self.result_ready.emit(results)
 
 
-class CreateTableWindow(QDialog):
-    def __init__(self, parent, title, x, y):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setFixedWidth(x)
-        self.setFixedHeight(y)
-        self.setWindowIcon(QIcon('icon.ico'))
-        self.center_window()
-
-        layout_v = QVBoxLayout()
-        layout_h = QHBoxLayout()
-
-        self.label = QLabel(f'<center>Таблица "compare_sids.xlsx"'
-                            f'<p>уже существует. Перезаписать?</center>')
-        layout_v.addWidget(self.label)
-
-        self.no_button = QPushButton("Нет")
-        self.yes_button = QPushButton("Да")
-        layout_h.addWidget(self.no_button)
-        layout_h.addWidget(self.yes_button)
-
-        # self.yes_button.clicked.connect(self.close)
-        self.no_button.clicked.connect(self.close)
-
-        layout_v.addLayout(layout_h)
-        self.setLayout(layout_v)
-
-    def center_window(self):
-        parent_geometry = self.parent().geometry()
-        self.setGeometry(
-            parent_geometry.x() + parent_geometry.width() // 2 - self.width() // 2,
-            parent_geometry.y() + parent_geometry.height() // 2 - self.height() // 2,
-            self.width(),
-            self.height()
-        )
-
-
 class AboutWindow(QDialog):
     def __init__(self, parent, title, x, y):
         super().__init__(parent)
@@ -89,6 +53,100 @@ class AboutWindow(QDialog):
                             f'<p>6) Запускаем "Проверка на дублирование SIDs" и ждем завершения.'
                             f'<p>7) Вывод результатов производится в "compare_sids.xlsx"')
         self.close_button = QPushButton("Закрыть")
+
+        layout.addWidget(self.label)
+        layout.addWidget(self.close_button)
+
+        self.close_button.clicked.connect(self.close)
+
+        self.setLayout(layout)
+
+    def center(self):
+        parent_geometry = self.parent().geometry()
+        self.setGeometry(
+            parent_geometry.x() + parent_geometry.width() // 2 - self.width() // 2,
+            parent_geometry.y() + parent_geometry.height() // 2 - self.height() // 2,
+            self.width(),
+            self.height()
+        )
+
+
+class CreateTableWindow(QDialog):
+    def __init__(self, parent, title, x, y):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setFixedWidth(x)
+        self.setFixedHeight(y)
+        self.setWindowIcon(QIcon('icon.ico'))
+        self.center_window()
+
+        layout = QVBoxLayout()
+        result_path = 1
+
+        result = funcs.compare_sids_table_exists()
+
+        if result:
+            self.label = QLabel(f'<center>Таблица "compare_sids.xlsx" уже существует. Перезаписать?</center>')
+        else:
+            funcs.create_compare_sids_table()
+            result = funcs.compare_sids_table_exists()
+            result_path = 2
+            if result:
+                self.label = QLabel(f'<center>Шаблон таблицы успешно создан!')
+            else:
+                self.label = QLabel(f'<center>Возникла проблема с созданием шаблона таблицы</center>')
+
+
+        layout.addWidget(self.label)
+
+        if result_path == 1:
+            self.no_button = QPushButton("Нет")
+            self.yes_button = QPushButton("Да")
+
+            layout.addWidget(self.no_button)
+            layout.addWidget(self.yes_button)
+
+            self.yes_button.clicked.connect(self.close)
+            self.no_button.clicked.connect(self.close)
+
+        elif result_path == 2:
+            self.ok_button = QPushButton("Ок")
+
+            layout.addWidget(self.ok_button)
+
+            self.ok_button.clicked.connect(self.close)
+
+        layout.addLayout(layout)
+        self.setLayout(layout)
+
+    def center_window(self):
+        parent_geometry = self.parent().geometry()
+        self.setGeometry(
+            parent_geometry.x() + parent_geometry.width() // 2 - self.width() // 2,
+            parent_geometry.y() + parent_geometry.height() // 2 - self.height() // 2,
+            self.width(),
+            self.height()
+        )
+
+
+class CreateTableResult(QDialog):
+    def __init__(self, parent, title, x, y):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setFixedWidth(x)
+        self.setFixedHeight(y)
+        self.setWindowIcon(QIcon('icon.ico'))
+        self.center()
+
+        layout = QVBoxLayout()
+
+        self.close_button = QPushButton("Ок")
+
+        result = funcs.compare_sids_table_exists()
+        if result:
+            self.label = QLabel(f'Шаблон таблицы успешно создан!')
+        else:
+            self.label = QLabel(f'Возникла проблема с созданием шаблона таблицы')
 
         layout.addWidget(self.label)
         layout.addWidget(self.close_button)
@@ -137,25 +195,38 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.message_output)
 
         self.about_button.clicked.connect(self.about_window)
-        # self.create_table_button.clicked.connect(self.create_compare_sids_table)
+        self.create_table_button.clicked.connect(self.create_compare_sids_table_func)
         self.get_sids_button.clicked.connect(self.get_domain_n_local_sids)
         # self.get_failed_sids_button.clicked.connect(self.get_failed_domain_n_local_sids)
         self.get_dubles_button.clicked.connect(self.get_dubles)
 
         central_widget.setLayout(layout)
 
-    # def create_table_window(self):
-    #     self.secondary_window = CreateTableWindow(self, 'Файл уже существует', 250, 150)
-    #     self.secondary_window.exec_()
+
+    def create_compare_sids_table_func(self):
+        result = funcs.compare_sids_table_exists()
+        print(result)
+        if result:
+            self.secondary_window = CreateTableWindow(self, 'Таблица уже существует', 450, 100)
+            self.secondary_window.exec_()
+        else:
+            self.secondary_window = CreateTableWindow(self, 'Результат создания таблицы', 450, 100)
+            self.secondary_window.exec_()
+
 
     def about_window(self):
         self.secondary_window = AboutWindow(self, 'About', 550, 450)
         self.secondary_window.exec_()
 
+
     # run different thread for getting sids
     def get_domain_n_local_sids(self):
-        self.message_output.append(f"Идет получение Domain и Local SIDs. Пожалуйста, подождите."
-                                   f"<p>************")
+        self.message_output.append(f'Идет получение Domain и Local SIDs.'
+                                   f'<p>Результаты будут записаны в "compare_sids.xlsx" '
+                                   f'после получения последнего SID.'
+                                   f'<p>Убедитесь, что таблица "compare_sids.xlsx" не открыта.'
+                                   f'<p>Пожалуйста, подождите.'
+                                   f'<p>************************************************')
         self.get_sids_button.setEnabled(False)
         self.sids_thread = WorkerThread(self.run_get_domain_n_local_sids)
         self.sids_thread.partial_result_ready.connect(self.on_partial_sids_received)
@@ -178,26 +249,26 @@ class MainWindow(QMainWindow):
         print(f'INFO: n: {n}')
 
         if message:
-            self.message_output.append(ws_name_output + ":"
-                                       + "<p>Name: " + ws_list[n]
-                                       + "<p>Discr: " + ws_list_discr[n]
-                                       + "<p>Local SID - " + message
-                                       + "<p>Domain SID - " + domain_sid_output
-                                       + "<p>************")
+            self.message_output.append("<b>" + ws_name_output + ":</b>"
+                                       + "<p><b>Name:</b> " + ws_list[n]
+                                       + "<p><b>Discr:</b> " + ws_list_discr[n]
+                                       + "<p><b>Local SID</b> - " + message
+                                       + "<p><b>Domain SID</b> - " + domain_sid_output
+                                       + "<p>************************************************")
         else:
-            self.message_output.append(ws_name_output + ":"
-                                       + "<p>Name: " + ws_list[n]
-                                       + "<p>Discr: " + ws_list_discr[n]
-                                       + "<p>Local SID - " + local_sid_output
-                                       + "<p>Domain SID - " + domain_sid_output
-                                       + "<p>************")
+            self.message_output.append("<b>" + ws_name_output + ":</b>"
+                                       + "<p><b>Name:</b> " + ws_list[n]
+                                       + "<p><b>Discr:</b> " + ws_list_discr[n]
+                                       + "<p><b>Local SID</b> - " + local_sid_output
+                                       + "<p><b>Domain SID</b> - " + domain_sid_output
+                                       + "<p>************************************************")
         n += 1
 
     # handling full results
     def on_sids_received(self, results):
         global n
         self.message_output.append('Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
-        self.message_output.append("************")
+        self.message_output.append("************************************************")
         n = 0
         self.get_sids_button.setEnabled(True)
 
