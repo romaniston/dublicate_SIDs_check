@@ -4,6 +4,8 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from modules import funcs
 
+from collections.abc import Iterable
+
 
 compare_sids_xlsx, sheet = funcs.table_var_assign()
 ws_list, ws_list_discr = funcs.get_ws_names_and_discr()
@@ -280,10 +282,34 @@ class MainWindow(QMainWindow):
         self.dubles_thread.result_ready.connect(self.on_dubles_checked)
         self.dubles_thread.start()
 
+
     # run different thread for getting dubles
     def run_get_dubles(self):
-        funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=True)
-        funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=False)
+        # Проверяем локальные SID
+        result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=True)
+
+        if result is None:
+            # Функция не является генератором → сама всё сделала → просто уведомляем GUI
+            yield ("local", "Поиск дублей Local SID завершён")
+        elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            # Генератор или список → отдаём элементы по одному
+            for item in result:
+                yield ("local", str(item))
+        else:
+            # На случай неожиданных типов
+            yield ("local", f"Результат Local SID: {result}")
+
+        # Проверяем доменные SID
+        result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=False)
+
+        if result is None:
+            yield ("domain", "Поиск дублей Domain SID завершён")
+        elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
+            for item in result:
+                yield ("domain", str(item))
+        else:
+            yield ("domain", f"Результат Domain SID: {result}")
+
 
     # handling partial results
     def on_partial_dubles_received(self):
