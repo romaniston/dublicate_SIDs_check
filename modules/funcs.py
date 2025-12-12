@@ -6,7 +6,6 @@ import openpyxl
 from openpyxl.styles import PatternFill, Font
 
 
-
 output_message_ws_no_ping = 'Workstation не пингуется. Local SID не получен.'
 output_message_dont_get_local_sid = ('Не удалось получить Local SID. Возможно утилита '
                                      'запущена не от имени администратора.')
@@ -135,6 +134,7 @@ def excel_field_color(color):
 
 
 def looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid):
+        
     ws_count = 0
     n = 1
     while sheet[n][0].value != None:
@@ -142,10 +142,10 @@ def looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid):
         n += 1
 
     if not_domain_sid:
-        print('Идёт поиск дублей Local SID...')
+        print('Идёт поиск дублей Local SID')
         domain_sid = 0
     else:
-        print('Идёт поиск дублей Domain SID...')
+        print('Идёт поиск дублей Domain SID')
         domain_sid = 1
 
     is_header_field = True
@@ -202,27 +202,46 @@ def looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid):
 
 
 def create_compare_sids_table():
-    # Создаем новую книгу Excel
     wb = openpyxl.Workbook()
     sheet = wb.active
-
-    # Заполняем заголовки
+    
     headers = [
-        "No",
-        "Name",
-        "Description",
-        "Local SID",
-        "Domain SID",
-        "Local SID duplicates",
-        "Domain SID duplicates"
+        "№",
+        "workstation", 
+        "ws description",
+        "local SID",
+        "domain SID",
+        "local SID dubles",
+        "domain SID dubles"
     ]
-
-    # Записываем заголовки в первую строку и применяем жирный шрифт
+    
     for col_num, header in enumerate(headers, 1):
         cell = sheet.cell(row=1, column=col_num, value=header)
         cell.font = Font(bold=True)
 
-    # Автоматически подгоняем ширину столбцов под содержимое
+    for column in sheet.columns:
+        max_length = 0
+        column_letter = column[0].column_letter
+        for cell in column:
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2) * 1.2
+        sheet.column_dimensions[column_letter].width = adjusted_width
+    
+    try:
+        wb.save('compare_sids.xlsx')
+        return True
+    except PermissionError:
+        print("Ошибка: Нет доступа к файлу. Закройте compare_sids.xlsx если он открыт.")
+        return False
+    
+    for col_num, header in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=col_num, value=header)
+        cell.font = Font(bold=True)
+
     for column in sheet.columns:
         max_length = 0
         column_letter = column[0].column_letter
@@ -235,7 +254,6 @@ def create_compare_sids_table():
         adjusted_width = (max_length + 2) * 1.2
         sheet.column_dimensions[column_letter].width = adjusted_width
 
-    # Сохраняем файл
     try:
         wb.save('compare_sids.xlsx')
         return True
@@ -252,3 +270,75 @@ def compare_sids_table_exists():
     except Exception as e:
         print('Файл не найден. EXCEPTION: ' + str(e))
         return False
+    
+
+def get_missing_sids(ws_list, sheet, compare_sids_xlsx, ws_list_discr):
+    n = 0
+    all_ws_data_list = [[None] * 5 for _ in range(len(ws_list))]
+    
+    for i in range(len(ws_list)):
+        all_ws_data_list[i][0] = sheet[2 + i][0].value  # №
+        all_ws_data_list[i][1] = sheet[2 + i][1].value  # workstation
+        all_ws_data_list[i][2] = sheet[2 + i][2].value  # ws description
+        all_ws_data_list[i][3] = sheet[2 + i][3].value  # local SID
+        all_ws_data_list[i][4] = sheet[2 + i][4].value  # domain SID
+
+    for string in range(len(ws_list)):
+        ws_name_output = f'Workstation #{1+n}'
+        current_local_sid = all_ws_data_list[n][3]
+        current_domain_sid = all_ws_data_list[n][4]
+        
+        # checking for update local sid
+        need_update_local = (
+            current_local_sid == output_message_dont_get_local_sid or
+            current_local_sid == output_message_ws_no_ping or
+            current_local_sid is None or
+            str(current_local_sid).strip() == ''
+        )
+        
+        # checking for update domain sid
+        need_update_domain = (
+            current_domain_sid is None or
+            str(current_domain_sid).strip() == '' or
+            not str(current_domain_sid).startswith('S-1-5-21')
+        )
+        
+        if need_update_local or need_update_domain:
+            ping_or_not_bool = ping_or_not(ws_list, n)
+            
+            if not ping_or_not_bool:
+                # ws is no ping
+                if need_update_local:
+                    all_ws_data_list[n][3] = output_message_ws_no_ping
+                if need_update_domain:
+                    domain_sid = get_one_domain_sid(ws_list, 0 + n)
+                    all_ws_data_list[n][4] = domain_sid
+                yield ws_name_output, output_message_ws_no_ping, None, None, all_ws_data_list[n][4]
+            else:
+                # ws is ping, trying to get sid
+                if need_update_local:
+                    local_sid = get_one_local_sid(ws_list, 0 + n)
+                    if local_sid[0] != 'S':
+                        all_ws_data_list[n][3] = output_message_dont_get_local_sid
+                    else:
+                        all_ws_data_list[n][3] = local_sid
+                
+                if need_update_domain:
+                    domain_sid = get_one_domain_sid(ws_list, 0 + n)
+                    all_ws_data_list[n][4] = domain_sid
+                
+                yield ws_name_output, None, None, all_ws_data_list[n][3], all_ws_data_list[n][4]
+        else:
+            yield ws_name_output, None, "skip", current_local_sid, current_domain_sid
+        
+        n += 1
+
+    # save
+    num = -1
+    for data in all_ws_data_list:
+        num += 1
+        for n2 in range(5):
+            sheet[2 + (num)][n2].value = data[n2]
+    compare_sids_xlsx.save('compare_sids.xlsx')
+
+
