@@ -18,19 +18,33 @@ sheet = None
 class WorkerThread(QThread):
     result_ready = pyqtSignal(object)
     partial_result_ready = pyqtSignal(tuple)
+    cancelled = False
+    operation_cancelled = pyqtSignal()
 
     def __init__(self, func, *args, **kwargs):
         super().__init__()
         self.func = func
         self.args = args
         self.kwargs = kwargs
+        self.cancelled = False
 
     def run(self):
         results = []
-        for result in self.func(*self.args, **self.kwargs):
-            self.partial_result_ready.emit(result)
-            results.append(result)
-        self.result_ready.emit(results)
+        try:
+            for result in self.func(*self.args, **self.kwargs):
+                if self.cancelled:
+                    self.operation_cancelled.emit()
+                    return
+                self.partial_result_ready.emit(result)
+                results.append(result)
+        except Exception as e:
+            print(f"Ошибка в потоке: {e}")
+            results = [("error", f"Ошибка в потоке: {e}")]
+        finally:
+            self.result_ready.emit(results)
+
+    def cancel(self):
+        self.cancelled = True
 
 
 class AboutWindow(QDialog):
@@ -187,6 +201,10 @@ class MainWindow(QMainWindow):
         self.get_sids_button = QPushButton("Получить SIDs")
         self.get_failed_sids_button = QPushButton("Получить недостающие SIDs")
         self.get_dubles_button = QPushButton("Проверка на дублирование SIDs")
+        
+        self.cancel_button = QPushButton("Отмена")
+        self.cancel_button.setEnabled(False)
+        
         self.message_output = QTextEdit()  # log field
         self.message_output.setReadOnly(True)
 
@@ -194,20 +212,51 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.get_sids_button)
         layout.addWidget(self.get_failed_sids_button)
         layout.addWidget(self.get_dubles_button)
+        layout.addWidget(self.cancel_button)
         layout.addWidget(self.message_output)
 
         self.about_button.clicked.connect(self.about_window)
         self.get_sids_button.clicked.connect(self.check_and_get_sids)
         self.get_failed_sids_button.clicked.connect(self.get_failed_domain_n_local_sids)
         self.get_dubles_button.clicked.connect(self.get_dubles)
+        self.cancel_button.clicked.connect(self.cancel_operation)
 
         central_widget.setLayout(layout)
 
         self.compare_sids_xlsx = None
         self.sheet = None
+        self.current_thread = None
 
+    def disable_all_buttons(self):
+        """Отключает все кнопки кроме About, активирует кнопку Отмена"""
+        self.get_sids_button.setEnabled(False)
+        self.get_failed_sids_button.setEnabled(False)
+        self.get_dubles_button.setEnabled(False)
+        
+        self.cancel_button.setEnabled(True)
+
+    def enable_all_buttons(self):
+        self.get_sids_button.setEnabled(True)
+        self.get_failed_sids_button.setEnabled(True)
+        self.get_dubles_button.setEnabled(True)
+        
+        self.cancel_button.setEnabled(False)
+        
+        self.current_thread = None
+
+    def cancel_operation(self):
+        if self.current_thread and self.current_thread.isRunning():
+            self.current_thread.cancel()
+            
+            self.cancel_button.setEnabled(False)
+            
+            self.message_output.append("<font color='orange'><b>✗ Операция отменена пользователем</b></font>")
+            self.message_output.append("************************************************")
 
     def check_and_get_sids(self):
+        self.disable_all_buttons()
+        self.message_output.append("Начинается получение SID...")
+        
         if not funcs.compare_sids_table_exists():
             success = funcs.create_compare_sids_table()
             if success:
@@ -216,16 +265,20 @@ class MainWindow(QMainWindow):
                 self.get_domain_n_local_sids()
             else:
                 self.message_output.append("Ошибка: Не удалось создать таблицу!")
+                self.enable_all_buttons()
         else:
-            reply = QMessageBox.question(
-                self, 
-                'Таблица уже существует',
-                'Таблица "compare_sids.xlsx" уже существует. Создать новую таблицу (старая будет перезаписана)?',
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
-            )
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle('Таблица уже существует')
+            msg_box.setText('Таблица "compare_sids.xlsx" уже существует. Создать новую таблицу (старая будет перезаписана)?')
+            msg_box.setIcon(QMessageBox.Question)
             
-            if reply == QMessageBox.Yes:
+            yes_button = msg_box.addButton("Да", QMessageBox.YesRole)
+            no_button = msg_box.addButton("Нет", QMessageBox.NoRole)
+            msg_box.setDefaultButton(yes_button)
+            
+            msg_box.exec_()
+            
+            if msg_box.clickedButton() == yes_button:
                 success = funcs.create_compare_sids_table()
                 if success:
                     self.message_output.append("Таблица 'compare_sids.xlsx' успешно перезаписана!<p>")
@@ -233,8 +286,10 @@ class MainWindow(QMainWindow):
                     self.get_domain_n_local_sids()
                 else:
                     self.message_output.append("Ошибка: Не удалось создать новую таблицу!")
+                    self.enable_all_buttons()
             else:
                 self.message_output.append("Операция отменена пользователем.")
+                self.enable_all_buttons()
 
 
     def about_window(self):
@@ -244,33 +299,48 @@ class MainWindow(QMainWindow):
 
     # run different thread for getting sids
     def get_domain_n_local_sids(self):
-        # Проверяем что таблица загружена
         if self.compare_sids_xlsx is None or self.sheet is None:
             self.message_output.append("Ошибка: Таблица не загружена!")
+            self.enable_all_buttons()
             return
             
         self.message_output.append(f'Идет получение Domain и Local SIDs.'
-                                   f'<p>Результаты будут записаны в "compare_sids.xlsx" '
-                                   f'после получения последнего SID.'
-                                   f'<p>Убедитесь, что таблица "compare_sids.xlsx" не открыта.'
-                                   f'<p>Пожалуйста, подождите.'
-                                   f'<p>************************************************')
-        self.get_sids_button.setEnabled(False)
-        self.sids_thread = WorkerThread(self.run_get_domain_n_local_sids)
+                                f'<p>Результаты будут записаны в "compare_sids.xlsx" '
+                                f'после получения последнего SID.'
+                                f'<p>Убедитесь, что таблица "compare_sids.xlsx" не открыта.'
+                                f'<p>Пожалуйста, подождите.'
+                                f'<p>************************************************')
+        
+        self.sids_thread = WorkerThread(self.run_get_domain_n_local_sids, 
+                                    self.sheet, 
+                                    self.compare_sids_xlsx)
         self.sids_thread.partial_result_ready.connect(self.on_partial_sids_received)
         self.sids_thread.result_ready.connect(self.on_sids_received)
+        self.sids_thread.operation_cancelled.connect(self.on_operation_cancelled)  # Новое соединение
+        self.current_thread = self.sids_thread
         self.sids_thread.start()
+    
+    def on_operation_cancelled(self):
+        self.message_output.append("<font color='orange'><b>✗ Операция отменена пользователем. Данные не сохранены.</b></font>")
+        self.message_output.append("************************************************")
+        self.enable_all_buttons()
+
 
     # get sids for each ws
-    def run_get_domain_n_local_sids(self):
-        for ws_name_output, message, fail_output, local_sid_output, domain_sid_output in funcs.get_names_and_sids(
-                ws_list, self.sheet, self.compare_sids_xlsx, ws_list_discr):
-            yield (ws_name_output, message, fail_output, local_sid_output, domain_sid_output)
+    def run_get_domain_n_local_sids(self, sheet, compare_sids_xlsx):
+            for ws_name_output, message, fail_output, local_sid_output, domain_sid_output in funcs.get_names_and_sids(
+                    ws_list, sheet, compare_sids_xlsx, ws_list_discr, self):  # self - поток
+                yield (ws_name_output, message, fail_output, local_sid_output, domain_sid_output)
 
-    # handling partial results and output logs
+        # handling partial results and output logs
     def on_partial_sids_received(self, result):
         global n
         ws_name_output, message, fail_output, local_sid_output, domain_sid_output = result
+        
+        if ws_name_output == "cancelled":
+            self.message_output.append("<font color='orange'><b>Операция отменена</b></font>")
+            self.message_output.append("************************************************")
+            return
 
         print(f'INFO: ws_list: {ws_list}')
         print(f'INFO: ws_list_discr: {ws_list_discr}')
@@ -278,35 +348,51 @@ class MainWindow(QMainWindow):
 
         if message:
             self.message_output.append("<b>" + ws_name_output + ":</b>"
-                                       + "<p><b>Name:</b> " + ws_list[n]
-                                       + "<p><b>Discr:</b> " + ws_list_discr[n]
-                                       + "<p><b>Local SID</b> - " + message
-                                       + "<p><b>Domain SID</b> - " + domain_sid_output
-                                       + "<p>************************************************")
+                                    + "<p><b>Name:</b> " + ws_list[n]
+                                    + "<p><b>Discr:</b> " + ws_list_discr[n]
+                                    + "<p><b>Local SID</b> - " + message
+                                    + "<p><b>Domain SID</b> - " + domain_sid_output
+                                    + "<p>************************************************")
         else:
             self.message_output.append("<b>" + ws_name_output + ":</b>"
-                                       + "<p><b>Name:</b> " + ws_list[n]
-                                       + "<p><b>Discr:</b> " + ws_list_discr[n]
-                                       + "<p><b>Local SID</b> - " + local_sid_output
-                                       + "<p><b>Domain SID</b> - " + domain_sid_output
-                                       + "<p>************************************************")
+                                    + "<p><b>Name:</b> " + ws_list[n]
+                                    + "<p><b>Discr:</b> " + ws_list_discr[n]
+                                    + "<p><b>Local SID</b> - " + local_sid_output
+                                    + "<p><b>Domain SID</b> - " + domain_sid_output
+                                    + "<p>************************************************")
         n += 1
+
 
     # handling full results
     def on_sids_received(self, results):
         global n
-        self.message_output.append('Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
+        
+        is_cancelled = False
+        if results:
+            for result in results:
+                if isinstance(result, tuple) and len(result) >= 2:
+                    if result[0] == "cancelled" or (len(result) > 1 and result[0] == "cancelled"):
+                        is_cancelled = True
+                        break
+        
+        if is_cancelled:
+            self.message_output.append("<font color='orange'><b>Операция отменена. Данные не сохранены.</b></font>")
+        else:
+            self.message_output.append('Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
+        
         self.message_output.append("************************************************")
         n = 0
-        self.get_sids_button.setEnabled(True)
+        self.enable_all_buttons()
 
     def get_dubles(self):
-            self.message_output.append("Идет поиск дублирующихся SIDs.")
-            self.get_dubles_button.setEnabled(False)
-            self.dubles_thread = WorkerThread(self.run_get_dubles)
-            self.dubles_thread.partial_result_ready.connect(self.on_partial_dubles_received)
-            self.dubles_thread.result_ready.connect(self.on_dubles_checked)
-            self.dubles_thread.start()
+        self.disable_all_buttons()
+        self.message_output.append("Идет поиск дублирующихся SIDs.")
+        
+        self.dubles_thread = WorkerThread(self.run_get_dubles)
+        self.dubles_thread.partial_result_ready.connect(self.on_partial_dubles_received)
+        self.dubles_thread.result_ready.connect(self.on_dubles_checked)
+        self.current_thread = self.dubles_thread
+        self.dubles_thread.start()
 
 
     # run different thread for getting dubles
@@ -326,10 +412,16 @@ class MainWindow(QMainWindow):
                 yield ("error", error_html)
                 return
 
-            result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=True)
-
+            result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=True, thread=self)
+            
+            if isinstance(result, tuple) and result[0] == "cancelled":
+                yield ("cancelled", result[1])
+                return
+                
             if isinstance(result, str) and "font color='red'" in result:
                 yield ("error", result)
+            elif isinstance(result, tuple) and result[0] == "ERROR":
+                yield ("error", result[1])
             elif result is None:
                 yield ("local", "Поиск дублей Local SID завершён")
             elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
@@ -338,10 +430,17 @@ class MainWindow(QMainWindow):
             else:
                 yield ("local", f"Результат Local SID: {result}")
 
-            result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=False)
-
+            result = funcs.looking_for_dubles(sheet, compare_sids_xlsx, not_domain_sid=False, thread=self)
+            
+            # Проверяем отмену
+            if isinstance(result, tuple) and result[0] == "cancelled":
+                yield ("cancelled", result[1])
+                return
+                
             if isinstance(result, str) and "font color='red'" in result:
                 yield ("error", result)
+            elif isinstance(result, tuple) and result[0] == "ERROR":
+                yield ("error", result[1])
             elif result is None:
                 yield ("domain", "Поиск дублей Domain SID завершён")
             elif isinstance(result, Iterable) and not isinstance(result, (str, bytes)):
@@ -362,48 +461,69 @@ class MainWindow(QMainWindow):
                 self.message_output.append(result[1])
             elif result[0] == "local" or result[0] == "domain":
                 self.message_output.append(result[1])
+            elif result[0] == "cancelled":
+                self.message_output.append("<font color='orange'><b>Операция отменена</b></font>")
         else:
             self.message_output.append('...')
 
 
     # handling full results
     def on_dubles_checked(self, results):
-        self.message_output.append('Поиск дублей закончен. Результаты записаны в "compare_sids.xlsx"')
+        is_cancelled = False
+        if results:
+            for result in results:
+                if isinstance(result, tuple) and len(result) >= 2:
+                    if result[0] == "cancelled" or (len(result) > 1 and result[0] == "cancelled"):
+                        is_cancelled = True
+                        break
+        
+        if is_cancelled:
+            self.message_output.append("<font color='orange'><b>Операция отменена. Данные не сохранены.</b></font>")
+        else:
+            self.message_output.append('Поиск дублей закончен. Результаты записаны в "compare_sids.xlsx"')
+        
         self.message_output.append("************************************************")
-        self.get_dubles_button.setEnabled(True)
+        self.enable_all_buttons()
 
 
     def get_failed_domain_n_local_sids(self):
-        """Метод для получения недостающих SID"""
+        self.disable_all_buttons()
+        
         if not funcs.compare_sids_table_exists():
             self.message_output.append("Таблица 'compare_sids.xlsx' не найдена. Сначала создайте таблицу или получите все SID.")
+            self.enable_all_buttons()
             return
         
         compare_sids_xlsx, sheet = funcs.table_var_assign()
         
         if compare_sids_xlsx is None or sheet is None:
             self.message_output.append("Ошибка: Не удалось загрузить таблицу!")
+            self.enable_all_buttons()
             return
     
         self.message_output.append(f"Идет получение недостающих Domain и Local SIDs. Пожалуйста, подождите."
                                 f"<p>************")
-        self.get_failed_sids_button.setEnabled(False)
+        
         self.failed_sids_thread = WorkerThread(self.run_get_failed_domain_n_local_sids, compare_sids_xlsx, sheet)
         self.failed_sids_thread.partial_result_ready.connect(self.on_partial_failed_sids_received)
         self.failed_sids_thread.result_ready.connect(self.on_failed_sids_received)
+        self.current_thread = self.failed_sids_thread
         self.failed_sids_thread.start()
-
 
     def run_get_failed_domain_n_local_sids(self, compare_sids_xlsx, sheet):
         for ws_name_output, message, skip_output, local_sid_output, domain_sid_output in funcs.get_missing_sids(
-                ws_list, sheet, compare_sids_xlsx, ws_list_discr):
+                ws_list, sheet, compare_sids_xlsx, ws_list_discr, self):
             yield (ws_name_output, message, skip_output, local_sid_output, domain_sid_output)
 
 
     def on_partial_failed_sids_received(self, result):
         global n
-        
         ws_name_output, message, skip_output, local_sid_output, domain_sid_output = result
+        
+        if ws_name_output == "cancelled":
+            self.message_output.append("<font color='orange'><b>Операция отменена</b></font>")
+            self.message_output.append("************************************************")
+            return
         
         print(f'INFO: n = {n}, ws_list length = {len(ws_list)}, ws_list_discr length = {len(ws_list_discr)}')
         
@@ -432,11 +552,22 @@ class MainWindow(QMainWindow):
         
         n += 1  # Увеличиваем счетчик
 
-
     def on_failed_sids_received(self, results):
         global n
         
-        self.message_output.append('Недостающие Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
+        is_cancelled = False
+        if results:
+            for result in results:
+                if isinstance(result, tuple) and len(result) >= 2:
+                    if result[0] == "cancelled" or (len(result) > 1 and result[0] == "cancelled"):
+                        is_cancelled = True
+                        break
+        
+        if is_cancelled:
+            self.message_output.append("<font color='orange'><b>Операция отменена. Данные не сохранены.</b></font>")
+        else:
+            self.message_output.append('Недостающие Domain и Local SIDs получены и записаны в "compare_sids.xlsx"')
+        
         self.message_output.append("************************************************")
         n = 0
-        self.get_failed_sids_button.setEnabled(True)
+        self.enable_all_buttons()
